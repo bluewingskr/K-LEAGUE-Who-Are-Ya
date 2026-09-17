@@ -1312,17 +1312,27 @@ const message = document.getElementById("message");
 
 let gameMode = "daily";
 
-/* 한국 시간(KST) 기준 날짜를 YYYY-MM-DD로 반환 */
-function getKSTDateKey(){
-  const now = new Date();
-  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  return kst.toISOString().slice(0,10);
+/* 한국 시간(KST) 기준 날짜/시간 처리 */
+function getKSTDateKey(date = new Date()){
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const get = type => parts.find(p => p.type === type).value;
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
 function getKSTDateLabel(){
-  const key = getKSTDateKey();
-  const [y,m,d] = key.split("-");
-  return `${y}년 ${Number(m)}월 ${Number(d)}일`;
+  const parts = new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric"
+  }).formatToParts(new Date());
+  const get = type => parts.find(p => p.type === type).value;
+  return `${get("year")}년 ${get("month")}월 ${get("day")}일`;
 }
 
 /* 날짜가 같으면 누구나 같은 선수가 나오도록 결정적 해시 사용 */
@@ -1341,17 +1351,32 @@ function updateDailyInfo(){
   document.getElementById("dailyDate").textContent = `${getKSTDateLabel()} · 매일 00:00 KST에 변경`;
 }
 
+/* 다음 한국시간(KST) 자정까지 정확한 남은 시간 */
+function getNextKSTMidnightMs(){
+  const [year, month, day] = getKSTDateKey().split("-").map(Number);
+  // 다음 날 00:00 KST = 다음 날 00:00 UTC - 9시간
+  return Date.UTC(year, month - 1, day + 1, 0, 0, 0) - 9 * 60 * 60 * 1000;
+}
+
+let lastDailyDateKey = getKSTDateKey();
+
 function updateCountdown(){
   const now = new Date();
-  const kstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  const next = new Date(kstNow);
-  next.setUTCHours(15,0,0,0); // 다음 날 00:00 KST
-  if(next <= kstNow) next.setUTCDate(next.getUTCDate()+1);
-  const diff = next - kstNow;
-  const h = Math.floor(diff/3600000);
-  const min = Math.floor((diff%3600000)/60000);
-  const sec = Math.floor((diff%60000)/1000);
-  document.getElementById("dailyCountdown").textContent = `다음 오늘의 선수까지 ${h}시간 ${min}분 ${String(sec).padStart(2,"0")}초`;
+  const currentKey = getKSTDateKey(now);
+
+  // 자정이 지나면 오늘의 선수도 즉시 새 날짜 문제로 교체
+  if(currentKey !== lastDailyDateKey){
+    lastDailyDateKey = currentKey;
+    if(gameMode === "daily") startDailyGame();
+    else updateDailyInfo();
+  }
+
+  const diff = Math.max(0, getNextKSTMidnightMs() - now.getTime());
+  const h = Math.floor(diff / 3600000);
+  const min = Math.floor((diff % 3600000) / 60000);
+  const sec = Math.floor((diff % 60000) / 1000);
+  document.getElementById("dailyCountdown").textContent =
+    `다음 오늘의 선수까지 ${String(h).padStart(2,"0")}시간 ${String(min).padStart(2,"0")}분 ${String(sec).padStart(2,"0")}초`;
 }
 
 function resetBoard(){
@@ -1373,6 +1398,7 @@ function setModeButtons(){
 
 function startDailyGame(){
   gameMode = "daily";
+  lastDailyDateKey = getKSTDateKey();
   answer = dailyPlayer();
   resetBoard();
   updateDailyInfo();
